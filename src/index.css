@@ -750,6 +750,12 @@ main {
   color: var(--muted);
 }
 
+.risk-gauge .word-value {
+  font-family: inherit;
+  font-size: 20px;
+  font-weight: 900;
+}
+
 .coverage-row {
   display: grid;
   grid-template-columns: auto 1fr 230px;
@@ -825,6 +831,35 @@ main {
   background: #fbfaf6;
 }
 
+.decision-banner {
+  display: grid;
+  gap: 7px;
+  margin-top: 18px;
+  padding: 20px;
+  border-radius: 14px;
+  background: var(--ink);
+  color: var(--white);
+}
+
+.decision-banner > span {
+  color: var(--lime);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.decision-banner strong {
+  font-size: clamp(17px, 2.2vw, 24px);
+  line-height: 1.45;
+}
+
+.decision-banner p {
+  max-width: 780px;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 10px;
+  line-height: 1.8;
+}
+
 .imported-fields {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -837,6 +872,14 @@ main {
   padding: 17px;
   border-radius: 12px;
   background: var(--paper);
+}
+
+.imported-fields .unresolved-field {
+  background: #fff0e9;
+}
+
+.unresolved-field strong {
+  color: #98422c;
 }
 
 .imported-fields strong {

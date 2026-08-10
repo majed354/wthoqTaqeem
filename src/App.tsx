@@ -16,6 +16,14 @@ type PlaceData = {
   googleMapsUri?: string;
 };
 
+type PreliminaryAssessment = {
+  adjustedRating: number | null;
+  sampleStrength: number;
+  sampleLabel: string;
+  qualityLabel: string;
+  decision: string;
+};
+
 const demoPlace: PlaceData = {
   id: "demo-place",
   name: "المكان التجريبي",
@@ -93,6 +101,46 @@ function formatCount(value: number) {
   return value.toLocaleString("ar-SA");
 }
 
+function assessPlace(place: PlaceData): PreliminaryAssessment {
+  const count = Math.max(0, place.userRatingCount);
+  const sampleStrength = Math.round(100 * (1 - Math.exp(-count / 100)));
+  const sampleLabel = sampleStrength >= 80 ? "قوية" : sampleStrength >= 55 ? "متوسطة" : "محدودة";
+
+  if (place.rating === null) {
+    return {
+      adjustedRating: null,
+      sampleStrength,
+      sampleLabel,
+      qualityLabel: "لا تتوفر درجة جودة",
+      decision: "لا توجد بيانات كافية لإصدار قراءة أولية.",
+    };
+  }
+
+  // تصحيح محافظ: نضيف 20 تقييمًا افتراضيًا بمتوسط 4.0 لتقليل أثر العينات الصغيرة.
+  const priorMean = 4;
+  const priorWeight = 20;
+  const adjustedRating = (place.rating * count + priorMean * priorWeight) / (count + priorWeight);
+  const qualityLabel =
+    adjustedRating >= 4.6
+      ? "جودة ظاهرة ممتازة"
+      : adjustedRating >= 4.3
+        ? "جودة ظاهرة قوية"
+        : adjustedRating >= 4
+          ? "جودة ظاهرة جيدة"
+          : adjustedRating >= 3.5
+            ? "جودة ظاهرة متوسطة"
+            : "إشارة جودة منخفضة";
+
+  const decision =
+    adjustedRating >= 4.5 && count >= 100
+      ? "إشارة جودة قوية، مع تحقق إضافي قبل الشراء."
+      : adjustedRating >= 4.2 && count >= 30
+        ? "إشارة جودة إيجابية، لكن قارن التجارب الحديثة قبل القرار."
+        : "لا تعتمد على النجوم وحدها؛ يلزم تحقق مباشر قبل القرار.";
+
+  return { adjustedRating, sampleStrength, sampleLabel, qualityLabel, decision };
+}
+
 export default function App() {
   const [mode, setMode] = useState<Mode>("single");
   const [primaryUrl, setPrimaryUrl] = useState("");
@@ -112,6 +160,10 @@ export default function App() {
   const canAnalyze =
     primaryUrl.trim().length > 5 && (mode === "single" || competitorUrl.trim().length > 5);
   const isLiveResult = analysisSource === "live";
+  const preliminaryAssessment = useMemo(
+    () => (placeData ? assessPlace(placeData) : null),
+    [placeData],
+  );
 
   async function submitAnalysis(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -153,7 +205,7 @@ export default function App() {
   async function copySummary() {
     if (!placeData) return;
     const summary = isLiveResult
-      ? `وثوق — بيانات مستوردة من Google\n${placeData.name}\n${placeData.category}${placeData.city ? ` · ${placeData.city}` : ""}\nتقييم Google: ${formatRating(placeData.rating)}/5 من ${formatCount(placeData.userRatingCount)} تقييمًا\nدرجة الوثوق: لم تُحسب بعد`
+      ? `وثوق — قراءة أولية\n${placeData.name}\n${placeData.category}${placeData.city ? ` · ${placeData.city}` : ""}\nتقييم Google: ${formatRating(placeData.rating)}/5 من ${formatCount(placeData.userRatingCount)} تقييمًا\nالتقييم المرجح أوليًا: ${formatRating(preliminaryAssessment?.adjustedRating ?? null)}/5\nالخلاصة: ${preliminaryAssessment?.decision ?? "لا توجد بيانات كافية."}\nأصالة المراجعات: غير محسومة دون بيانات تفصيلية`
       : `وثوق — تحليل تجريبي\nتقييم Google: 4.90/5\nالتقييم الموثوق الحالي: ${trustedScore}/5\nخطر التلاعب: 76/100\nالثقة في التحليل: منخفضة`;
     await navigator.clipboard.writeText(summary);
     setCopied(true);
@@ -173,7 +225,7 @@ export default function App() {
         <nav aria-label="التنقل الرئيسي">
           <a href="#كيف-يعمل">كيف يعمل؟</a>
           <a href="#المنهجية">المنهجية</a>
-          <span className="version-chip">تجريبي · v0.2</span>
+          <span className="version-chip">تجريبي · v0.3</span>
         </nav>
       </header>
 
@@ -297,7 +349,7 @@ export default function App() {
           <div className="section-heading result-heading">
             <div>
               <p className="eyebrow light"><span aria-hidden="true" /> {isLiveResult ? "بيانات مستوردة" : "نتيجة تجريبية"}</p>
-              <h2>{isLiveResult ? "هذه هي المنشأة التي يشير إليها الرابط." : mode === "compare" ? "المقارنة تكشف الفارق." : "الرقم الخام لا يروي القصة كاملة."}</h2>
+              <h2>{isLiveResult ? "قراءة أولية تساعدك على القرار." : mode === "compare" ? "المقارنة تكشف الفارق." : "الرقم الخام لا يروي القصة كاملة."}</h2>
             </div>
             <button className="copy-button" type="button" onClick={copySummary}>
               {copied ? "تم النسخ ✓" : "نسخ الملخص"}
@@ -326,19 +378,19 @@ export default function App() {
 
               {isLiveResult ? (
                 <>
-                  <article className="score-card trusted-score pending-score">
-                    <span>التقييم الموثوق</span>
-                    <div><strong>—</strong></div>
-                    <p>لم يُحسب؛ نحتاج نصوص المراجعات وتواريخها لتحليل صالح.</p>
+                  <article className="score-card trusted-score preliminary-score">
+                    <span>التقييم المرجّح أوليًا</span>
+                    <div><strong>{formatRating(preliminaryAssessment?.adjustedRating ?? null)}</strong><small>/ 5</small></div>
+                    <p>تصحيح محافظ يقلل أثر العينات الصغيرة؛ لا يثبت أصالة المراجعات.</p>
                   </article>
                   <article className="risk-card live-pending-card">
-                    <div className="risk-gauge pending" role="img" aria-label="خطر التلاعب لم يحسب بعد">
-                      <div><strong>—</strong></div>
+                    <div className="risk-gauge pending" role="img" aria-label="بيانات الموثوقية جزئية">
+                      <div><strong className="word-value">جزئي</strong></div>
                     </div>
                     <div>
-                      <span>خطر التلاعب</span>
-                      <strong>لم يُحسب بعد</strong>
-                      <p>لا نستنتج الخطر من المتوسط وعدد التقييمات وحدهما.</p>
+                      <span>حكم أصالة المراجعات</span>
+                      <strong>غير محسوم</strong>
+                      <p>Google يتيح المتوسط والحجم، ولا يعيد السجل الكامل اللازم لكشف التنسيق.</p>
                     </div>
                   </article>
                 </>
@@ -367,33 +419,38 @@ export default function App() {
               <>
                 <div className="coverage-row live-coverage">
                   <div>
-                    <span>حالة الاستيراد</span>
-                    <strong>مكتمل <small>من Google</small></strong>
+                    <span>قوة العينة رقميًا</span>
+                    <strong>{preliminaryAssessment?.sampleStrength ?? 0}<small>/100 · {preliminaryAssessment?.sampleLabel}</small></strong>
                   </div>
-                  <div className="coverage-track" aria-hidden="true"><span /></div>
-                  <p>الاسم والتصنيف والمدينة والتقييم وعدد التقييمات مرتبطة بالمنشأة الفعلية.</p>
+                  <div className="coverage-track" aria-hidden="true"><span style={{ width: `${preliminaryAssessment?.sampleStrength ?? 0}%` }} /></div>
+                  <p>كثرة التقييمات تجعل المتوسط أكثر استقرارًا إحصائيًا، لكنها لا تثبت أن المراجعات أصلية.</p>
                 </div>
 
                 <div className="evidence-block live-evidence">
                   <div className="evidence-title">
                     <div>
-                      <span>ما الذي نعرفه الآن؟</span>
-                      <h4>بيانات حقيقية، وتحليل لم يبدأ بعد</h4>
+                      <span>الخلاصة الأولية</span>
+                      <h4>{preliminaryAssessment?.qualityLabel}</h4>
                     </div>
-                    <span className="evidence-count">مرحلة 1 من 2</span>
+                    <span className="evidence-count">قرار مبدئي</span>
+                  </div>
+                  <div className="decision-banner">
+                    <span>القرار الحالي</span>
+                    <strong>{preliminaryAssessment?.decision}</strong>
+                    <p>افحص صور الأعمال الحديثة، واقرأ التقييمات الأقل نجومًا، واطلب ضمانًا مكتوبًا قبل الالتزام المالي.</p>
                   </div>
                   <div className="imported-fields">
                     <article>
-                      <strong>✓ مطابقة المنشأة</strong>
-                      <p>تم فك رابط المشاركة وربطه بمعرّف المكان لدى Google.</p>
+                      <strong>✓ تقييم مرجّح</strong>
+                      <p>أضفنا 20 تقييمًا افتراضيًا بمتوسط 4.0 لتقليل تضخيم العينات الصغيرة.</p>
                     </article>
                     <article>
-                      <strong>✓ المتوسط والحجم</strong>
-                      <p>استُورد التقييم الخام وعدد التقييمات الظاهرة مباشرة.</p>
+                      <strong>✓ حجم العينة</strong>
+                      <p>{formatCount(placeData.userRatingCount)} تقييمًا تمنح المتوسط قوة رقمية {preliminaryAssessment?.sampleLabel}.</p>
                     </article>
-                    <article>
-                      <strong>الخطوة التالية</strong>
-                      <p>مصدر قانوني للمراجعات التفصيلية كي نحسب التشابه والزمن ودرجة الوثوق.</p>
+                    <article className="unresolved-field">
+                      <strong>! الأصالة غير محسومة</strong>
+                      <p>نحتاج النصوص والتواريخ وتوزيع النجوم وسجل المراجعين حتى نحسب خطر التلاعب.</p>
                     </article>
                   </div>
                   {placeData.googleMapsUri && (
@@ -470,11 +527,11 @@ export default function App() {
                 {isLiveResult ? (
                   <>
                     <div className="comparison-row head" role="row">
-                      <span>المنشأة</span><span>Google</span><span>التقييمات</span><span>المدينة</span><span>المصدر</span>
+                      <span>المنشأة</span><span>Google</span><span>المرجح</span><span>التقييمات</span><span>المدينة</span>
                     </div>
                     {[placeData, competitorPlaceData].map((place) => (
                       <div className="comparison-row" role="row" key={place.id}>
-                        <strong>{place.name}</strong><span>{formatRating(place.rating)}</span><span>{formatCount(place.userRatingCount)}</span><span>{place.city ?? "—"}</span><b>Google</b>
+                        <strong>{place.name}</strong><span>{formatRating(place.rating)}</span><b>{formatRating(assessPlace(place).adjustedRating)}</b><span>{formatCount(place.userRatingCount)}</span><span>{place.city ?? "—"}</span>
                       </div>
                     ))}
                   </>
@@ -497,7 +554,7 @@ export default function App() {
 
           <p className="result-disclaimer">
             {isLiveResult
-              ? "هوية المنشأة والتقييم وعدده بيانات مستوردة من Google. لم نحسب درجة الوثوق أو خطر التلاعب بعد."
+              ? "التقييم المرجح وقوة العينة قراءة أولية من المتوسط والحجم. لا تمثل حكمًا على أصالة المراجعات أو اتهامًا للمنشأة."
               : "هذه نتيجة محاكاة لا تصف منشأة حقيقية. استخدم رابطًا فعليًا لاستيراد بيانات Google."}
           </p>
         </section>

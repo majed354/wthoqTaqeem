@@ -3,6 +3,37 @@ import type { FormEvent } from "react";
 
 type Mode = "single" | "compare";
 type AnalysisState = "idle" | "loading" | "done";
+type AnalysisSource = "live" | "demo" | null;
+
+type PlaceData = {
+  id: string;
+  name: string;
+  category: string;
+  city?: string;
+  address?: string;
+  rating: number | null;
+  userRatingCount: number;
+  googleMapsUri?: string;
+};
+
+const demoPlace: PlaceData = {
+  id: "demo-place",
+  name: "المكان التجريبي",
+  category: "مطعم",
+  city: "الرياض",
+  address: "بيانات محاكاة للتعريف بالمنهجية",
+  rating: 4.9,
+  userRatingCount: 120,
+};
+
+const demoCompetitor: PlaceData = {
+  id: "demo-competitor",
+  name: "المنافس المستقر",
+  category: "مطعم",
+  city: "الرياض",
+  rating: 4.7,
+  userRatingCount: 186,
+};
 
 const signals = [
   {
@@ -34,11 +65,43 @@ const steps = [
   ["03", "نصحح التقييم", "نعيد وزن المراجعات ونوضح أثر كل إشارة."],
 ];
 
+function scrollToResults() {
+  window.setTimeout(() => {
+    document.getElementById("النتيجة")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, 80);
+}
+
+async function importPlace(url: string) {
+  const response = await fetch("/api/place", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+
+  const payload = (await response.json().catch(() => ({}))) as { place?: PlaceData; error?: string };
+  if (!response.ok || !payload.place) {
+    throw new Error(payload.error ?? "تعذر استيراد بيانات المنشأة. حاول مرة أخرى.");
+  }
+  return payload.place;
+}
+
+function formatRating(value: number | null) {
+  return value === null ? "—" : value.toFixed(2);
+}
+
+function formatCount(value: number) {
+  return value.toLocaleString("ar-SA");
+}
+
 export default function App() {
   const [mode, setMode] = useState<Mode>("single");
   const [primaryUrl, setPrimaryUrl] = useState("");
   const [competitorUrl, setCompetitorUrl] = useState("");
   const [analysisState, setAnalysisState] = useState<AnalysisState>("idle");
+  const [analysisSource, setAnalysisSource] = useState<AnalysisSource>(null);
+  const [placeData, setPlaceData] = useState<PlaceData | null>(null);
+  const [competitorPlaceData, setCompetitorPlaceData] = useState<PlaceData | null>(null);
+  const [analysisError, setAnalysisError] = useState("");
   const [suspiciousWeight, setSuspiciousWeight] = useState(15);
   const [copied, setCopied] = useState(false);
 
@@ -46,30 +109,52 @@ export default function App() {
     return (4.39 + suspiciousWeight * 0.003).toFixed(2);
   }, [suspiciousWeight]);
 
-  const canAnalyze = primaryUrl.trim().length > 5;
+  const canAnalyze =
+    primaryUrl.trim().length > 5 && (mode === "single" || competitorUrl.trim().length > 5);
+  const isLiveResult = analysisSource === "live";
 
-  function submitAnalysis(event: FormEvent<HTMLFormElement>) {
+  async function submitAnalysis(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canAnalyze) return;
 
+    setAnalysisError("");
     setAnalysisState("loading");
-    window.setTimeout(() => {
+    setAnalysisSource(null);
+    setPlaceData(null);
+    setCompetitorPlaceData(null);
+
+    try {
+      const requests = [importPlace(primaryUrl.trim())];
+      if (mode === "compare") requests.push(importPlace(competitorUrl.trim()));
+      const [primary, competitor] = await Promise.all(requests);
+
+      setPlaceData(primary);
+      setCompetitorPlaceData(competitor ?? null);
+      setAnalysisSource("live");
       setAnalysisState("done");
-      window.setTimeout(() => {
-        document.getElementById("النتيجة")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 80);
-    }, 1150);
+      scrollToResults();
+    } catch (error) {
+      setAnalysisState("idle");
+      setAnalysisError(error instanceof Error ? error.message : "تعذر استيراد البيانات.");
+    }
   }
 
   function loadExample() {
     setPrimaryUrl("https://maps.app.goo.gl/wothoq-demo-a");
-    if (mode === "compare") {
-      setCompetitorUrl("https://maps.app.goo.gl/wothoq-demo-b");
-    }
+    if (mode === "compare") setCompetitorUrl("https://maps.app.goo.gl/wothoq-demo-b");
+    setAnalysisError("");
+    setPlaceData(demoPlace);
+    setCompetitorPlaceData(mode === "compare" ? demoCompetitor : null);
+    setAnalysisSource("demo");
+    setAnalysisState("done");
+    scrollToResults();
   }
 
   async function copySummary() {
-    const summary = `وثوق — تحليل تجريبي\nتقييم قوقل: 4.90/5\nالتقييم الموثوق الحالي: ${trustedScore}/5\nخطر التلاعب: 76/100\nالثقة في التحليل: منخفضة`;
+    if (!placeData) return;
+    const summary = isLiveResult
+      ? `وثوق — بيانات مستوردة من Google\n${placeData.name}\n${placeData.category}${placeData.city ? ` · ${placeData.city}` : ""}\nتقييم Google: ${formatRating(placeData.rating)}/5 من ${formatCount(placeData.userRatingCount)} تقييمًا\nدرجة الوثوق: لم تُحسب بعد`
+      : `وثوق — تحليل تجريبي\nتقييم Google: 4.90/5\nالتقييم الموثوق الحالي: ${trustedScore}/5\nخطر التلاعب: 76/100\nالثقة في التحليل: منخفضة`;
     await navigator.clipboard.writeText(summary);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1800);
@@ -88,13 +173,13 @@ export default function App() {
         <nav aria-label="التنقل الرئيسي">
           <a href="#كيف-يعمل">كيف يعمل؟</a>
           <a href="#المنهجية">المنهجية</a>
-          <span className="version-chip">تجريبي · v0.1</span>
+          <span className="version-chip">تجريبي · v0.2</span>
         </nav>
       </header>
 
       <section className="hero" id="الرئيسية">
         <div className="hero-copy">
-          <p className="eyebrow"><span aria-hidden="true" /> مؤشر موثوقية تقييمات قوقل</p>
+          <p className="eyebrow"><span aria-hidden="true" /> مؤشر موثوقية تقييمات Google</p>
           <h1>لا تجعل <em>4.9</em><br />تخدعك.</h1>
           <p className="hero-lead">
             وثوق لا يدّعي معرفة الكاذب. نبحث عن أنماط التلاعب، نعيد وزن التقييمات،
@@ -111,9 +196,9 @@ export default function App() {
           <div className="analyzer-topline">
             <div>
               <span className="live-dot" aria-hidden="true" />
-              <strong>تحليل سريع</strong>
+              <strong>استيراد مباشر</strong>
             </div>
-            <span>بيانات محاكاة</span>
+            <span>Google Places</span>
           </div>
 
           <div className="mode-switch" role="tablist" aria-label="نوع التحليل">
@@ -122,7 +207,10 @@ export default function App() {
               role="tab"
               aria-selected={mode === "single"}
               className={mode === "single" ? "active" : ""}
-              onClick={() => setMode("single")}
+              onClick={() => {
+                setMode("single");
+                setAnalysisError("");
+              }}
             >
               منشأة واحدة
             </button>
@@ -131,13 +219,16 @@ export default function App() {
               role="tab"
               aria-selected={mode === "compare"}
               className={mode === "compare" ? "active" : ""}
-              onClick={() => setMode("compare")}
+              onClick={() => {
+                setMode("compare");
+                setAnalysisError("");
+              }}
             >
               مقارنة منافسين
             </button>
           </div>
 
-          <label htmlFor="primary-url">رابط المنشأة من قوقل ماب</label>
+          <label htmlFor="primary-url">رابط المنشأة من Google Maps</label>
           <div className="url-field">
             <span className="link-icon" aria-hidden="true">↗</span>
             <input
@@ -146,7 +237,10 @@ export default function App() {
               inputMode="url"
               placeholder="الصق رابط maps.app.goo.gl"
               value={primaryUrl}
-              onChange={(event) => setPrimaryUrl(event.target.value)}
+              onChange={(event) => {
+                setPrimaryUrl(event.target.value);
+                setAnalysisError("");
+              }}
               required
             />
           </div>
@@ -162,42 +256,48 @@ export default function App() {
                   inputMode="url"
                   placeholder="الصق رابط المنافس"
                   value={competitorUrl}
-                  onChange={(event) => setCompetitorUrl(event.target.value)}
+                  onChange={(event) => {
+                    setCompetitorUrl(event.target.value);
+                    setAnalysisError("");
+                  }}
+                  required
                 />
               </div>
             </div>
           )}
 
+          {analysisError && <p className="form-error" role="alert">{analysisError}</p>}
+
           <div className="form-actions">
             <button className="primary-button" type="submit" disabled={!canAnalyze || analysisState === "loading"}>
-              {analysisState === "loading" ? "جارٍ فحص الإشارات…" : mode === "compare" ? "حلّل وقارن" : "حلّل الرابط"}
+              {analysisState === "loading" ? "جارٍ استيراد البيانات…" : mode === "compare" ? "استورد وقارن" : "استورد البيانات"}
               <span aria-hidden="true">←</span>
             </button>
             <button className="text-button" type="button" onClick={loadExample}>جرّب مثالًا</button>
           </div>
 
           <p className="form-note">
-            النسخة الحالية توضح طريقة الحساب ببيانات تجريبية ولا تجلب مراجعات حقيقية بعد.
+            نستورد هوية المنشأة والتقييم وعدده من Google. درجة الوثوق الكاملة تحتاج بيانات مراجعات موسعة.
           </p>
         </form>
       </section>
 
       {analysisState === "loading" && (
-        <section className="analysis-loader" aria-live="polite" aria-label="جارٍ التحليل">
+        <section className="analysis-loader" aria-live="polite" aria-label="جارٍ الاستيراد">
           <div className="scan-orbit"><span /></div>
           <div>
-            <strong>نقرأ ما وراء المتوسط…</strong>
-            <p>الزمن ← تشابه النصوص ← شبكات المراجعين ← التصحيح البايزي</p>
+            <strong>نتحقق من الرابط ونحدد المنشأة…</strong>
+            <p>فتح الرابط ← مطابقة المكان ← استيراد بيانات Google الرسمية</p>
           </div>
         </section>
       )}
 
-      {analysisState === "done" && (
+      {analysisState === "done" && placeData && (
         <section className="results-section" id="النتيجة">
           <div className="section-heading result-heading">
             <div>
-              <p className="eyebrow light"><span aria-hidden="true" /> نتيجة تجريبية</p>
-              <h2>{mode === "compare" ? "المقارنة تكشف الفارق." : "الرقم الخام لا يروي القصة كاملة."}</h2>
+              <p className="eyebrow light"><span aria-hidden="true" /> {isLiveResult ? "بيانات مستوردة" : "نتيجة تجريبية"}</p>
+              <h2>{isLiveResult ? "هذه هي المنشأة التي يشير إليها الرابط." : mode === "compare" ? "المقارنة تكشف الفارق." : "الرقم الخام لا يروي القصة كاملة."}</h2>
             </div>
             <button className="copy-button" type="button" onClick={copySummary}>
               {copied ? "تم النسخ ✓" : "نسخ الملخص"}
@@ -206,113 +306,199 @@ export default function App() {
 
           <div className="report-card">
             <div className="report-identity">
-              <div className="place-icon" aria-hidden="true">م</div>
+              <div className="place-icon" aria-hidden="true">{placeData.name.trim().charAt(0) || "م"}</div>
               <div>
-                <small>مطعم · الرياض</small>
-                <h3>المكان التجريبي</h3>
-                <p>تحليل عام من رابط قوقل ماب</p>
+                <small>{placeData.category}{placeData.city ? ` · ${placeData.city}` : ""}</small>
+                <h3>{placeData.name}</h3>
+                <p>{placeData.address ?? "تم التعرف على المنشأة من رابط Google Maps"}</p>
               </div>
-              <span className="confidence-badge">ثقة منخفضة</span>
+              <span className={`confidence-badge ${isLiveResult ? "google-badge" : ""}`}>
+                {isLiveResult ? "بيانات Google" : "ثقة منخفضة"}
+              </span>
             </div>
 
             <div className="score-grid">
               <article className="score-card raw-score">
-                <span>تقييم قوقل الخام</span>
-                <div><strong>4.90</strong><small>/ 5</small></div>
-                <p>120 تقييمًا ظاهرًا</p>
+                <span>تقييم Google الخام</span>
+                <div><strong>{formatRating(placeData.rating)}</strong><small>/ 5</small></div>
+                <p>{formatCount(placeData.userRatingCount)} تقييمًا ظاهرًا</p>
               </article>
-              <article className="score-card trusted-score">
-                <span>التقييم الموثوق الحالي</span>
-                <div><strong>{trustedScore}</strong><small>/ 5</small></div>
-                <p>نطاق الثقة 4.29 – 4.56</p>
-              </article>
-              <article className="risk-card">
-                <div className="risk-gauge" role="img" aria-label="خطر التلاعب 76 من 100">
-                  <div><strong>76</strong><small>/100</small></div>
-                </div>
-                <div>
-                  <span>خطر التلاعب</span>
-                  <strong>إشارات تنسيق مرتفعة</strong>
-                  <p>مصدران مستقلان على الأقل</p>
-                </div>
-              </article>
-            </div>
 
-            <div className="coverage-row">
-              <div>
-                <span>المراجعات الفعّالة</span>
-                <strong>68 <small>من 120</small></strong>
-              </div>
-              <div className="coverage-track" aria-hidden="true"><span /></div>
-              <p>نخفض الوزن ولا نحذف المراجعات حذفًا حادًا.</p>
-            </div>
-
-            <div className="evidence-block">
-              <div className="evidence-title">
-                <div>
-                  <span>لماذا تغيّر التقييم؟</span>
-                  <h4>أبرز الإشارات المؤثرة</h4>
-                </div>
-                <span className="evidence-count">3 إشارات</span>
-              </div>
-              <div className="signal-list">
-                {signals.map((signal) => (
-                  <article className="signal" key={signal.title}>
-                    <span className={`signal-level ${signal.tone}`}>{signal.level}</span>
-                    <div>
-                      <h5>{signal.title}</h5>
-                      <p>{signal.detail}</p>
-                    </div>
-                    <strong>{signal.impact}</strong>
+              {isLiveResult ? (
+                <>
+                  <article className="score-card trusted-score pending-score">
+                    <span>التقييم الموثوق</span>
+                    <div><strong>—</strong></div>
+                    <p>لم يُحسب؛ نحتاج نصوص المراجعات وتواريخها لتحليل صالح.</p>
                   </article>
-                ))}
-              </div>
+                  <article className="risk-card live-pending-card">
+                    <div className="risk-gauge pending" role="img" aria-label="خطر التلاعب لم يحسب بعد">
+                      <div><strong>—</strong></div>
+                    </div>
+                    <div>
+                      <span>خطر التلاعب</span>
+                      <strong>لم يُحسب بعد</strong>
+                      <p>لا نستنتج الخطر من المتوسط وعدد التقييمات وحدهما.</p>
+                    </div>
+                  </article>
+                </>
+              ) : (
+                <>
+                  <article className="score-card trusted-score">
+                    <span>التقييم الموثوق الحالي</span>
+                    <div><strong>{trustedScore}</strong><small>/ 5</small></div>
+                    <p>نطاق الثقة 4.29 – 4.56</p>
+                  </article>
+                  <article className="risk-card">
+                    <div className="risk-gauge" role="img" aria-label="خطر التلاعب 76 من 100">
+                      <div><strong>76</strong><small>/100</small></div>
+                    </div>
+                    <div>
+                      <span>خطر التلاعب</span>
+                      <strong>إشارات تنسيق مرتفعة</strong>
+                      <p>مصدران مستقلان على الأقل</p>
+                    </div>
+                  </article>
+                </>
+              )}
             </div>
 
-            <div className="sensitivity-card">
-              <div>
-                <span>اختبر أثر القرار</span>
-                <h4>وزن المراجعات عالية الاشتباه</h4>
-                <p>لا نقرر أنها وهمية؛ غيّر وزنها وشاهد أثر الافتراض على النتيجة.</p>
-              </div>
-              <div className="range-control">
-                <output>{suspiciousWeight}%</output>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={suspiciousWeight}
-                  onChange={(event) => setSuspiciousWeight(Number(event.target.value))}
-                  aria-label="وزن المراجعات عالية الاشتباه"
-                />
-                <div><span>استبعاد شبه كامل</span><span>الوزن الأصلي</span></div>
-              </div>
-            </div>
+            {isLiveResult ? (
+              <>
+                <div className="coverage-row live-coverage">
+                  <div>
+                    <span>حالة الاستيراد</span>
+                    <strong>مكتمل <small>من Google</small></strong>
+                  </div>
+                  <div className="coverage-track" aria-hidden="true"><span /></div>
+                  <p>الاسم والتصنيف والمدينة والتقييم وعدد التقييمات مرتبطة بالمنشأة الفعلية.</p>
+                </div>
+
+                <div className="evidence-block live-evidence">
+                  <div className="evidence-title">
+                    <div>
+                      <span>ما الذي نعرفه الآن؟</span>
+                      <h4>بيانات حقيقية، وتحليل لم يبدأ بعد</h4>
+                    </div>
+                    <span className="evidence-count">مرحلة 1 من 2</span>
+                  </div>
+                  <div className="imported-fields">
+                    <article>
+                      <strong>✓ مطابقة المنشأة</strong>
+                      <p>تم فك رابط المشاركة وربطه بمعرّف المكان لدى Google.</p>
+                    </article>
+                    <article>
+                      <strong>✓ المتوسط والحجم</strong>
+                      <p>استُورد التقييم الخام وعدد التقييمات الظاهرة مباشرة.</p>
+                    </article>
+                    <article>
+                      <strong>الخطوة التالية</strong>
+                      <p>مصدر قانوني للمراجعات التفصيلية كي نحسب التشابه والزمن ودرجة الوثوق.</p>
+                    </article>
+                  </div>
+                  {placeData.googleMapsUri && (
+                    <a className="maps-link" href={placeData.googleMapsUri} target="_blank" rel="noreferrer">
+                      فتح المنشأة في Google Maps <span aria-hidden="true">↗</span>
+                    </a>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="coverage-row">
+                  <div>
+                    <span>المراجعات الفعّالة</span>
+                    <strong>68 <small>من 120</small></strong>
+                  </div>
+                  <div className="coverage-track" aria-hidden="true"><span /></div>
+                  <p>نخفض الوزن ولا نحذف المراجعات حذفًا حادًا.</p>
+                </div>
+
+                <div className="evidence-block">
+                  <div className="evidence-title">
+                    <div>
+                      <span>لماذا تغيّر التقييم؟</span>
+                      <h4>أبرز الإشارات المؤثرة</h4>
+                    </div>
+                    <span className="evidence-count">3 إشارات</span>
+                  </div>
+                  <div className="signal-list">
+                    {signals.map((signal) => (
+                      <article className="signal" key={signal.title}>
+                        <span className={`signal-level ${signal.tone}`}>{signal.level}</span>
+                        <div>
+                          <h5>{signal.title}</h5>
+                          <p>{signal.detail}</p>
+                        </div>
+                        <strong>{signal.impact}</strong>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="sensitivity-card">
+                  <div>
+                    <span>اختبر أثر القرار</span>
+                    <h4>وزن المراجعات عالية الاشتباه</h4>
+                    <p>لا نقرر أنها وهمية؛ غيّر وزنها وشاهد أثر الافتراض على النتيجة.</p>
+                  </div>
+                  <div className="range-control">
+                    <output>{suspiciousWeight}%</output>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={suspiciousWeight}
+                      onChange={(event) => setSuspiciousWeight(Number(event.target.value))}
+                      aria-label="وزن المراجعات عالية الاشتباه"
+                    />
+                    <div><span>استبعاد شبه كامل</span><span>الوزن الأصلي</span></div>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
-          {mode === "compare" && (
+          {mode === "compare" && competitorPlaceData && (
             <div className="comparison-card">
               <div className="comparison-intro">
-                <span>الترتيب بعد التصحيح</span>
-                <h3>الاستقرار يتفوق على الرقم الأعلى.</h3>
-                <p>نرتب بالحد الأدنى لنطاق الثقة، لا بالمتوسط الخام وحده.</p>
+                <span>{isLiveResult ? "مقارنة البيانات الخام" : "الترتيب بعد التصحيح"}</span>
+                <h3>{isLiveResult ? "منشأتان من رابطين حقيقيين." : "الاستقرار يتفوق على الرقم الأعلى."}</h3>
+                <p>{isLiveResult ? "نعرض الآن بيانات Google فقط، دون ترتيب موثوقية غير مدعوم." : "نرتب بالحد الأدنى لنطاق الثقة، لا بالمتوسط الخام وحده."}</p>
               </div>
               <div className="comparison-table" role="table" aria-label="مقارنة المنشآت">
-                <div className="comparison-row head" role="row">
-                  <span>المنشأة</span><span>قوقل</span><span>الموثوق</span><span>الخطر</span><span>الترتيب</span>
-                </div>
-                <div className="comparison-row" role="row">
-                  <strong>المكان التجريبي</strong><span>4.90</span><span>{trustedScore}</span><span className="risk-text">76</span><b>02</b>
-                </div>
-                <div className="comparison-row winner" role="row">
-                  <strong>المنافس المستقر</strong><span>4.70</span><span>4.66</span><span className="safe-text">14</span><b>01</b>
-                </div>
+                {isLiveResult ? (
+                  <>
+                    <div className="comparison-row head" role="row">
+                      <span>المنشأة</span><span>Google</span><span>التقييمات</span><span>المدينة</span><span>المصدر</span>
+                    </div>
+                    {[placeData, competitorPlaceData].map((place) => (
+                      <div className="comparison-row" role="row" key={place.id}>
+                        <strong>{place.name}</strong><span>{formatRating(place.rating)}</span><span>{formatCount(place.userRatingCount)}</span><span>{place.city ?? "—"}</span><b>Google</b>
+                      </div>
+                    ))}
+                  </>
+                ) : (
+                  <>
+                    <div className="comparison-row head" role="row">
+                      <span>المنشأة</span><span>Google</span><span>الموثوق</span><span>الخطر</span><span>الترتيب</span>
+                    </div>
+                    <div className="comparison-row" role="row">
+                      <strong>المكان التجريبي</strong><span>4.90</span><span>{trustedScore}</span><span className="risk-text">76</span><b>02</b>
+                    </div>
+                    <div className="comparison-row winner" role="row">
+                      <strong>المنافس المستقر</strong><span>4.70</span><span>4.66</span><span className="safe-text">14</span><b>01</b>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           )}
 
           <p className="result-disclaimer">
-            هذه نتيجة محاكاة لا تصف منشأة حقيقية. عند ربط البيانات الرسمية ستظهر التغطية ومصدر كل دليل بوضوح.
+            {isLiveResult
+              ? "هوية المنشأة والتقييم وعدده بيانات مستوردة من Google. لم نحسب درجة الوثوق أو خطر التلاعب بعد."
+              : "هذه نتيجة محاكاة لا تصف منشأة حقيقية. استخدم رابطًا فعليًا لاستيراد بيانات Google."}
           </p>
         </section>
       )}
@@ -342,7 +528,7 @@ export default function App() {
 
       <section className="method-section" id="المنهجية">
         <div className="method-copy">
-          <p className="eyebrow light"><span aria-hidden="true" /> Trust Score v0.1</p>
+          <p className="eyebrow light"><span aria-hidden="true" /> Trust Score v0.2</p>
           <h2>إشارتان مستقلتان قبل الإنذار الأحمر.</h2>
           <p>
             لا يصل التحليل إلى «اشتباه مرتفع» بسبب تقييم واحد، أو نص قصير، أو حساب قليل النشاط.
@@ -371,7 +557,7 @@ export default function App() {
           <span className="brand-mark" aria-hidden="true">و</span>
           <span><strong>وثوق</strong><small>رؤية أوضح خلف النجوم</small></span>
         </a>
-        <p>نموذج أولي · البيانات المعروضة محاكاة وليست حكمًا على منشأة حقيقية.</p>
+        <p>نسخة تجريبية · نستورد بيانات المكان من Google ونُظهر بوضوح ما لم يُحلل بعد.</p>
         <a href="#الرئيسية">حلّل رابطًا <span aria-hidden="true">↑</span></a>
       </footer>
     </main>

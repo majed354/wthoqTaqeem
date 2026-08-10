@@ -418,6 +418,18 @@ main {
   line-height: 1.7;
 }
 
+.form-error {
+  margin: 14px 0 0;
+  padding: 11px 13px;
+  border: 1px solid rgba(243, 111, 79, 0.35);
+  border-radius: 10px;
+  background: #fff1eb;
+  color: #903b27;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.7;
+}
+
 .analysis-loader {
   width: min(900px, calc(100% - 48px));
   margin: 0 auto 92px;
@@ -578,6 +590,12 @@ main {
   font-weight: 900;
 }
 
+.confidence-badge.google-badge {
+  border-color: rgba(16, 43, 37, 0.2);
+  background: var(--lime);
+  color: var(--ink);
+}
+
 .score-grid {
   display: grid;
   grid-template-columns: 1fr 1fr 1.35fr;
@@ -648,6 +666,14 @@ main {
   color: var(--ink);
 }
 
+.pending-score {
+  background: #efffc5;
+}
+
+.pending-score > div {
+  justify-content: center;
+}
+
 .risk-card {
   display: flex;
   align-items: center;
@@ -704,6 +730,26 @@ main {
   font-size: 9px;
 }
 
+.live-pending-card {
+  background: var(--paper);
+}
+
+.risk-gauge.pending {
+  background: conic-gradient(rgba(16, 43, 37, 0.13) 0 100%);
+}
+
+.risk-gauge.pending::before {
+  background: var(--paper);
+}
+
+.risk-gauge.pending > div {
+  transform: rotate(20deg);
+}
+
+.risk-gauge.pending strong {
+  color: var(--muted);
+}
+
 .coverage-row {
   display: grid;
   grid-template-columns: auto 1fr 230px;
@@ -744,6 +790,11 @@ main {
   background: var(--ink);
 }
 
+.live-coverage .coverage-track span {
+  width: 100%;
+  background: var(--lime-deep);
+}
+
 .evidence-block {
   margin-top: 34px;
 }
@@ -765,6 +816,57 @@ main {
   padding: 7px 10px;
   border: 1px solid var(--line);
   border-radius: 999px;
+}
+
+.live-evidence {
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fbfaf6;
+}
+
+.imported-fields {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.imported-fields article {
+  min-height: 120px;
+  padding: 17px;
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.imported-fields strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.imported-fields p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.8;
+}
+
+.maps-link {
+  width: fit-content;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--ink);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.maps-link span {
+  color: var(--coral);
+  font-size: 15px;
 }
 
 .signal-list {
@@ -1146,6 +1248,8 @@ footer > a:last-child span {
   }
 
   .signal p { font-size: 10px; }
+  .imported-fields { grid-template-columns: 1fr; }
+  .imported-fields article { min-height: auto; }
   .sensitivity-card { grid-template-columns: 1fr; gap: 24px; }
   .comparison-card { padding: 22px 16px; }
   .comparison-table { overflow-x: auto; }
